@@ -1,7 +1,7 @@
 /*
  *  802.11 WEP / WPA-PSK Key Cracker
  *
- *  Copyright (C) 2007-2012 Martin Beck <hirte@aircrack-ng.org>
+ *  Copyright (C) 2007-2012 Martin Beck <martin.beck2@gmx.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -81,8 +81,6 @@
 #endif
 
 #define CLOSE_IT 100000
-
-extern float chrono(struct timeval * start, int reset);
 
 #define S_LLC_SNAP "\xAA\xAA\x03\x00\x00\x00"
 #define S_LLC_SNAP_ARP (S_LLC_SNAP "\x08\x06")

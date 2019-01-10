@@ -47,6 +47,8 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
+
+#include "defs.h"
 #include "crypto.h"
 #include "crctable.h"
 #include "aircrack-ng.h"
@@ -58,7 +60,8 @@
 
 /*  SSL decryption */
 
-int encrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen)
+inline int
+encrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen)
 {
 	RC4_KEY S;
 
@@ -68,90 +71,21 @@ int encrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen)
 	return (0);
 }
 
-int decrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen)
+inline int
+decrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen)
 {
 	encrypt_wep(data, len, key, keylen);
+
 	return (check_crc_buf(data, len - 4));
 }
-
-/* An implementation of the ARC4 algorithm */
-
-void rc4_setup(struct rc4_state * s, const unsigned char * key, int length)
-{
-	int i, j, k, *m;
-
-	s->x = 0;
-	s->y = 0;
-	m = s->m;
-
-	for (i = 0; i < 256; i++)
-	{
-		m[i] = i;
-	}
-
-	j = k = 0;
-
-	for (i = 0; i < 256; i++)
-	{
-		int a = m[i];
-		j = (unsigned char) (j + a + key[k]);
-		m[i] = m[j];
-		m[j] = a;
-		if (++k >= length) k = 0;
-	}
-}
-
-void rc4_crypt(struct rc4_state * s, unsigned char * data, int length)
-{
-	int i, x, y, *m;
-
-	x = s->x;
-	y = s->y;
-	m = s->m;
-
-	for (i = 0; i < length; i++)
-	{
-		int a, b;
-
-		x = (unsigned char) (x + 1);
-		a = m[x];
-		y = (unsigned char) (y + a);
-		m[x] = b = m[y];
-		m[y] = a;
-		data[i] ^= m[(unsigned char) (a + b)];
-	}
-
-	s->x = x;
-	s->y = y;
-}
-
-/* WEP (barebone RC4) en-/decryption routines */
-/*
-int encrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen )
-{
-	struct rc4_state S;
-
-	rc4_setup( &S, key, keylen );
-	rc4_crypt( &S, data, len );
-
-	return( 0 );
-}
-
-int decrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen )
-{
-	struct rc4_state S;
-
-	rc4_setup( &S, key, keylen );
-	rc4_crypt( &S, data, len );
-
-	return( check_crc_buf( data, len - 4 ) );
-}
-*/
 
 /* derive the PMK from the passphrase and the essid */
 
 void calc_pmk(char * key, char * essid_pre, unsigned char pmk[40])
 {
+	REQUIRE(key != NULL);
+	REQUIRE(essid_pre != NULL);
+
 	int i, j, slen;
 	unsigned char buffer[65];
 	char essid[33 + 4];
@@ -160,8 +94,7 @@ void calc_pmk(char * key, char * essid_pre, unsigned char pmk[40])
 	SHA_CTX sha1_ctx;
 	size_t essid_pre_len;
 
-	if (essid_pre == NULL || essid_pre[0] == 0
-		|| (essid_pre_len = strlen(essid_pre)) > 32)
+	if (essid_pre[0] == 0 || (essid_pre_len = strlen(essid_pre)) > 32)
 	{
 		return;
 	}
@@ -195,7 +128,7 @@ void calc_pmk(char * key, char * essid_pre, unsigned char pmk[40])
 		 (size_t) slen,
 		 pmk,
 		 NULL);
-	memcpy(buffer, pmk, 20);
+	memcpy(buffer, pmk, 20); //-V512
 
 	for (i = 1; i < 4096; i++)
 	{
@@ -234,54 +167,13 @@ void calc_pmk(char * key, char * essid_pre, unsigned char pmk[40])
 	}
 }
 
-// void calc_ptk (struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char
-// pmk[32], unsigned char ptk[80]) {
-// 	int i;
-// 	unsigned char pke[100];
-// 	HMAC_CTX ctx;
-//
-// 	memcpy( pke, "Pairwise key expansion", 23 );
-//
-// 	if( memcmp( wpa->stmac, bssid, 6 ) < 0 )
-// 	{
-// 		memcpy( pke + 23, wpa->stmac, 6 );
-// 		memcpy( pke + 29, bssid, 6 );
-// 	}
-// 	else
-// 	{
-// 		memcpy( pke + 23, bssid, 6 );
-// 		memcpy( pke + 29, wpa->stmac, 6 );
-// 	}
-//
-// 	if( memcmp( wpa->snonce, wpa->anonce, 32 ) < 0 )
-// 	{
-// 		memcpy( pke + 35, wpa->snonce, 32 );
-// 		memcpy( pke + 67, wpa->anonce, 32 );
-// 	}
-// 	else
-// 	{
-// 		memcpy( pke + 35, wpa->anonce, 32 );
-// 		memcpy( pke + 67, wpa->snonce, 32 );
-// 	}
-//
-// 	HMAC_CTX_init(&ctx);
-// 	HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
-// 	for(i = 0; i < 4; i++ )
-// 	{
-// 		pke[99] = i;
-// 		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
-// 		HMAC_Init_ex(&ctx, 0, 0, 0, 0);
-// 		HMAC_Update(&ctx, pke, 100);
-// 		HMAC_Final(&ctx, ptk + i*20, NULL);
-// 	}
-// 	HMAC_CTX_cleanup(&ctx);
-// }
-
 void calc_mic(struct AP_info * ap,
 			  unsigned char pmk[32],
 			  unsigned char ptk[80],
 			  unsigned char mic[20])
 {
+	REQUIRE(ap != NULL);
+
 	int i;
 	unsigned char pke[100];
 #if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L                \
@@ -325,7 +217,6 @@ void calc_mic(struct AP_info * ap,
 	for (i = 0; i < 4; i++)
 	{
 		pke[99] = (uint8_t) i;
-		// HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
 		HMAC_Init_ex(&ctx, 0, 0, 0, 0);
 		HMAC_Update(&ctx, pke, 100);
 		HMAC_Final(&ctx, ptk + i * 20, NULL);
@@ -337,7 +228,6 @@ void calc_mic(struct AP_info * ap,
 	for (i = 0; i < 4; i++)
 	{
 		pke[99] = i;
-		// HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
 		HMAC_Init_ex(ctx, 0, 0, 0, 0);
 		HMAC_Update(ctx, pke, 100);
 		HMAC_Final(ctx, ptk + i * 20, NULL);
@@ -356,8 +246,10 @@ void calc_mic(struct AP_info * ap,
 	}
 }
 
-unsigned long calc_crc(unsigned char * buf, int len)
+static inline unsigned long calc_crc(unsigned char * buf, int len)
 {
+	REQUIRE(buf != NULL);
+
 	unsigned long crc = 0xFFFFFFFF;
 
 	for (; len > 0; len--, buf++)
@@ -367,8 +259,10 @@ unsigned long calc_crc(unsigned char * buf, int len)
 }
 
 // without inversion, must be used for bit flipping attacks
-unsigned long calc_crc_plain(unsigned char * buf, int len)
+static inline unsigned long calc_crc_plain(unsigned char * buf, int len)
 {
+	REQUIRE(buf != NULL);
+
 	unsigned long crc = 0x00000000;
 
 	for (; len > 0; len--, buf++)
@@ -381,6 +275,8 @@ unsigned long calc_crc_plain(unsigned char * buf, int len)
 
 int check_crc_buf(unsigned char * buf, int len)
 {
+	REQUIRE(buf != NULL);
+
 	unsigned long crc;
 
 	crc = calc_crc(buf, len);
@@ -394,6 +290,8 @@ int check_crc_buf(unsigned char * buf, int len)
 
 int add_crc32(unsigned char * data, int length)
 {
+	REQUIRE(data != NULL);
+
 	unsigned long crc;
 
 	crc = calc_crc(data, length);
@@ -403,11 +301,13 @@ int add_crc32(unsigned char * data, int length)
 	data[length + 2] = (uint8_t)((crc >> 16) & 0xFF);
 	data[length + 3] = (uint8_t)((crc >> 24) & 0xFF);
 
-	return 0;
+	return (0);
 }
 
 int add_crc32_plain(unsigned char * data, int length)
 {
+	REQUIRE(data != NULL);
+
 	unsigned long crc;
 
 	crc = calc_crc_plain(data, length);
@@ -417,114 +317,128 @@ int add_crc32_plain(unsigned char * data, int length)
 	data[length + 2] = (uint8_t)((crc >> 16) & 0xFF);
 	data[length + 3] = (uint8_t)((crc >> 24) & 0xFF);
 
-	return 0;
+	return (0);
 }
 
 int calc_crc_buf(unsigned char * buf, int len)
 {
+	REQUIRE(buf != NULL);
+
 	return (int) (calc_crc(buf, len));
 }
 
-void * get_da(unsigned char * wh)
+static void * get_da(unsigned char * wh)
 {
+	REQUIRE(wh != NULL);
+
 	if (wh[1] & IEEE80211_FC1_DIR_FROMDS)
-		return wh + 4;
+		return (wh + 4);
 	else
-		return wh + 4 + 6 * 2;
+		return (wh + 4 + 6 * 2);
 }
 
-void * get_sa(unsigned char * wh)
+static void * get_sa(unsigned char * wh)
 {
+	REQUIRE(wh != NULL);
+
 	if (wh[1] & IEEE80211_FC1_DIR_FROMDS)
-		return wh + 4 + 6 * 2;
+		return (wh + 4 + 6 * 2);
 	else
-		return wh + 4 + 6;
+		return (wh + 4 + 6);
 }
 
 int is_ipv6(void * wh)
 {
+	REQUIRE(wh != NULL);
+
 	if (memcmp((char *) wh + 4, "\x33\x33", 2) == 0
 		|| memcmp((char *) wh + 16, "\x33\x33", 2) == 0)
-		return 1;
+		return (1);
 
-	return 0;
+	return (0);
 }
 
 int is_dhcp_discover(void * wh, size_t len)
 {
+	REQUIRE(wh != NULL);
+
 	if ((memcmp((char *) wh + 4, BROADCAST, 6) == 0
 		 || memcmp((char *) wh + 16, BROADCAST, 6) == 0)
 		&& (len >= 360 - 24 - 4 - 4 && len <= 380 - 24 - 4 - 4))
-		return 1;
+		return (1);
 
-	return 0;
+	return (0);
 }
 
-int is_arp(void * wh, size_t len)
+static inline int is_arp(void * wh, size_t len)
 {
-	size_t arpsize = 8 + 8 + 10 * 2;
+	UNUSED_PARAM(wh);
 
-	if (wh)
-	{
-	}
+	const size_t arpsize = 8 + 8 + 10 * 2;
+
 	/* remove non BROADCAST frames? could be anything, but
 		 * chances are good that we got an arp response tho.   */
 
-	if (len == arpsize || len == 54) return 1;
+	if (len == arpsize || len == 54) return (1);
 
-	return 0;
+	return (0);
 }
 
-int is_wlccp(void * wh, size_t len)
+static inline int is_wlccp(void * wh, size_t len)
 {
-	size_t wlccpsize = 58;
+	UNUSED_PARAM(wh);
 
-	if (wh)
-	{
-	}
+	const size_t wlccpsize = 58;
 
-	if (len == wlccpsize) return 1;
+	if (len == wlccpsize) return (1);
 
-	return 0;
+	return (0);
 }
 
 int is_qos_arp_tkip(void * wh, int len)
 {
+	REQUIRE(wh != NULL);
+
 	unsigned char * packet = (unsigned char *) wh;
-	int qosarpsize = (24 + 2) + 8 + (8 + (8 + 10 * 2)) + 8 + 4; // 82 in total
+	const int qosarpsize
+		= (24 + 2) + 8 + (8 + (8 + 10 * 2)) + 8 + 4; // 82 in total
 
 	if ((packet[1] & 3) == 1) // to ds
 	{
 		if (len == qosarpsize) // always wireless
-			return 1;
+			return (1);
 	}
 
 	if ((packet[1] & 3) == 2) // from ds
 	{
 		if (len == qosarpsize
 			|| len == qosarpsize + 18) // wireless or padded wired
-			return 1;
+			return (1);
 	}
 
-	return 0;
+	return (0);
 }
 
-int is_spantree(void * wh)
+static int is_spantree(void * wh)
 {
-	if (wh != NULL && (memcmp((char *) wh + 4, SPANTREE, 6) == 0
-					   || memcmp((char *) wh + 16, SPANTREE, 6) == 0))
-		return 1;
+	REQUIRE(wh != NULL);
 
-	return 0;
+	if (memcmp((char *) wh + 4, SPANTREE, 6) == 0
+		|| memcmp((char *) wh + 16, SPANTREE, 6) == 0)
+		return (1);
+
+	return (0);
 }
 
-int is_cdp_vtp(void * wh)
+static int is_cdp_vtp(void * wh)
 {
+	REQUIRE(wh != NULL);
+
 	if (memcmp((char *) wh + 4, CDP_VTP, 6) == 0
 		|| memcmp((char *) wh + 16, CDP_VTP, 6) == 0)
-		return 1;
+		return (1);
 
-	return 0;
+	return (0);
 }
 
 /* weight is used for guesswork in PTW.  Can be null if known_clear is not for
@@ -533,6 +447,10 @@ int is_cdp_vtp(void * wh)
 int known_clear(
 	void * clear, int * clen, int * weight, unsigned char * wh, size_t len)
 {
+	REQUIRE(clear != NULL);
+	REQUIRE(clen != NULL);
+	REQUIRE(wh != NULL);
+
 	unsigned char * ptr = clear;
 	int num;
 
@@ -563,7 +481,7 @@ int known_clear(
 		len = ptr - ((unsigned char *) clear);
 		*clen = (int) len;
 		if (weight) weight[0] = 256;
-		return 1;
+		return (1);
 	}
 	else if (is_wlccp(wh, len)) /*wlccp*/
 	{
@@ -584,7 +502,7 @@ int known_clear(
 		len = ptr - ((unsigned char *) clear);
 		*clen = (int) len;
 		if (weight) weight[0] = 256;
-		return 1;
+		return (1);
 	}
 	else if (is_spantree(wh)) /*spantree*/
 	{
@@ -595,7 +513,7 @@ int known_clear(
 		len = ptr - ((unsigned char *) clear);
 		*clen = (int) len;
 		if (weight) weight[0] = 256;
-		return 1;
+		return (1);
 	}
 	else if (is_cdp_vtp(wh)) /*spantree*/
 	{
@@ -606,18 +524,16 @@ int known_clear(
 		len = ptr - ((unsigned char *) clear);
 		*clen = (int) len;
 		if (weight) weight[0] = 256;
-		return 1;
+		return (1);
 	}
 	else /* IP */
 	{
 		unsigned short iplen = htons((uint16_t)(len - 8));
 
-		//                printf("Assuming IP %d\n", len);
-
 		len = sizeof(S_LLC_SNAP_IP) - 1;
 		memcpy(ptr, S_LLC_SNAP_IP, len);
 		ptr += len;
-#if 1
+
 		// version=4; header_length=20; services=0
 		len = 2;
 		memcpy(ptr, "\x45\x00", len);
@@ -631,9 +547,8 @@ int known_clear(
 		if (!weight)
 		{
 			*clen = (int) (ptr - ((unsigned char *) clear));
-			return 1;
+			return (1);
 		}
-#if 1
 		/* setting IP ID 0 is ok, as we
 				 * bruteforce it later
 		 */
@@ -646,8 +561,7 @@ int known_clear(
 		len = 2;
 		memcpy(ptr, "\x40\x00", len);
 		ptr += len;
-#endif
-#endif
+
 		len = ptr - ((unsigned char *) clear);
 		*clen = (int) len;
 
@@ -655,11 +569,11 @@ int known_clear(
 		memcpy((char *) clear + 32 + 14, "\x00\x00", 2); // ip flags=none
 
 		num = 2;
-		assert(weight);
+		ALLEGE(weight);
 		weight[0] = 220;
 		weight[1] = 36;
 
-		return num;
+		return (num);
 	}
 }
 
@@ -667,6 +581,8 @@ int known_clear(
 
 int calc_ptk(struct WPA_ST_info * wpa, unsigned char pmk[32])
 {
+	REQUIRE(wpa != NULL);
+
 	int i;
 	unsigned char pke[100];
 	unsigned char mic[20];
@@ -708,27 +624,34 @@ int calc_ptk(struct WPA_ST_info * wpa, unsigned char pmk[32])
 	else
 		HMAC(EVP_sha1(), wpa->ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
 
-	return (memcmp(mic, wpa->keymic, 16) == 0);
+	return (memcmp(mic, wpa->keymic, 16) == 0); //-V512
 }
 
-int init_michael(struct Michael * mic, const unsigned char key[8])
+static int init_michael(struct Michael * mic, const unsigned char key[8])
 {
+	REQUIRE(mic != NULL);
+
 	mic->key0 = UBTOUL(key[0]) << 0UL | UBTOUL(key[1]) << 8UL
 				| UBTOUL(key[2]) << 16UL | UBTOUL(key[3] << 24UL);
 	mic->key1 = UBTOUL(key[4]) << 0UL | UBTOUL(key[5]) << 8UL
 				| UBTOUL(key[6]) << 16UL | UBTOUL(key[7] << 24UL);
+
 	// and reset the message
 	mic->left = mic->key0;
 	mic->right = mic->key1;
 	mic->nBytesInM = 0UL;
 	mic->message = 0UL;
-	return 0;
+
+	return (0);
 }
 
-int michael_append_byte(struct Michael * mic, unsigned char byte)
+static int michael_append_byte(struct Michael * mic, unsigned char byte)
 {
+	REQUIRE(mic != NULL);
+
 	mic->message |= (UBTOUL(byte) << (8UL * mic->nBytesInM));
 	mic->nBytesInM++;
+
 	// Process the word if it is full.
 	if (mic->nBytesInM >= 4UL)
 	{
@@ -746,11 +669,15 @@ int michael_append_byte(struct Michael * mic, unsigned char byte)
 		mic->message = 0UL;
 		mic->nBytesInM = 0UL;
 	}
-	return 0;
+
+	return (0);
 }
 
-int michael_remove_byte(struct Michael * mic, const unsigned char bytes[4])
+static int michael_remove_byte(struct Michael * mic,
+							   const unsigned char bytes[4])
 {
+	REQUIRE(mic != NULL);
+
 	if (mic->nBytesInM == 0)
 	{
 		// Clear the buffer
@@ -769,33 +696,37 @@ int michael_remove_byte(struct Michael * mic, const unsigned char bytes[4])
 		mic->left ^= mic->message;
 	}
 	mic->nBytesInM--;
-	mic->message &= ~(0xFF << (8UL * mic->nBytesInM));
+	mic->message &= ~(0xFFUL << (8UL * mic->nBytesInM));
 
-	return 0;
+	return (0);
 }
 
-int michael_append(struct Michael * mic, unsigned char * bytes, int length)
+static int
+michael_append(struct Michael * mic, unsigned char * bytes, int length)
 {
 	while (length > 0)
 	{
 		michael_append_byte(mic, *bytes++);
 		length--;
 	}
-	return 0;
+	return (0);
 }
 
-int michael_remove(struct Michael * mic, unsigned char * bytes, int length)
+static int
+michael_remove(struct Michael * mic, unsigned char * bytes, int length)
 {
 	while (length >= 4)
 	{
 		michael_remove_byte(mic, (bytes + length - 4));
 		length--;
 	}
-	return 0;
+	return (0);
 }
 
-int michael_finalize(struct Michael * mic)
+static int michael_finalize(struct Michael * mic)
 {
+	REQUIRE(mic != NULL);
+
 	// Append the minimum padding
 	michael_append_byte(mic, 0x5a);
 	michael_append_byte(mic, 0);
@@ -817,11 +748,13 @@ int michael_finalize(struct Michael * mic)
 	mic->mic[6] = (uint8_t)((mic->right >> 16) & 0xff);
 	mic->mic[7] = (uint8_t)((mic->right >> 24) & 0xff);
 
-	return 0;
+	return (0);
 }
 
-int michael_finalize_zero(struct Michael * mic)
+static int michael_finalize_zero(struct Michael * mic)
 {
+	REQUIRE(mic != NULL);
+
 	// Append the minimum padding
 	michael_append_byte(mic, 0);
 	michael_append_byte(mic, 0);
@@ -843,7 +776,7 @@ int michael_finalize_zero(struct Michael * mic)
 	mic->mic[6] = (uint8_t)((mic->right >> 16) & 0xff);
 	mic->mic[7] = (uint8_t)((mic->right >> 24) & 0xff);
 
-	return 0;
+	return (0);
 }
 
 int michael_test(unsigned char key[8],
@@ -899,6 +832,8 @@ int michael_test(unsigned char key[8],
 
 int calc_tkip_mic_key(unsigned char * packet, int length, unsigned char key[8])
 {
+	REQUIRE(packet != NULL);
+
 	int z, is_qos = 0;
 	unsigned char smac[6], dmac[6], bssid[6];
 	unsigned char prio[4];
@@ -910,7 +845,7 @@ int calc_tkip_mic_key(unsigned char * packet, int length, unsigned char key[8])
 
 	z = ((packet[1] & 3) != 3) ? 24 : 30;
 
-	if (length < z) return 0;
+	if (length < z) return (0);
 
 	/* Check if 802.11e (QoS) */
 	if ((packet[0] & 0x80) == 0x80)
@@ -981,7 +916,7 @@ int calc_tkip_mic_key(unsigned char * packet, int length, unsigned char key[8])
 	mic.mic[7] = (uint8_t)((mic.right >> 24) & 0xFF);
 
 	memcpy(key, mic.mic, 8);
-	return 0;
+	return (0);
 }
 
 int calc_tkip_mic(unsigned char * packet,
@@ -989,6 +924,8 @@ int calc_tkip_mic(unsigned char * packet,
 				  unsigned char ptk[80],
 				  unsigned char value[8])
 {
+	REQUIRE(packet != NULL);
+
 	int z, koffset = 0, is_qos = 0;
 	unsigned char smac[6], dmac[6], bssid[6];
 	unsigned char prio[4];
@@ -996,7 +933,7 @@ int calc_tkip_mic(unsigned char * packet,
 
 	z = ((packet[1] & 3) != 3) ? 24 : 30;
 
-	if (length < z) return 0;
+	if (length < z) return (0);
 
 	/* Check if 802.11e (QoS) */
 	if ((packet[0] & 0x80) == 0x80)
@@ -1031,7 +968,7 @@ int calc_tkip_mic(unsigned char * packet,
 			break;
 	}
 
-	if (koffset != 48 && koffset != 48 + 8) return 1;
+	if (koffset != 48 && koffset != 48 + 8) return (1);
 
 	init_michael(&mic, ptk + koffset);
 
@@ -1051,7 +988,7 @@ int calc_tkip_mic(unsigned char * packet,
 
 	memcpy(value, mic.mic, 8);
 
-	return 0;
+	return (0);
 }
 
 const unsigned short TkipSbox[2][256]
@@ -1130,14 +1067,13 @@ int calc_tkip_ppk(unsigned char * h80211,
 				  unsigned char TK1[16],
 				  unsigned char key[16])
 {
+	UNUSED_PARAM(caplen);
+	REQUIRE(h80211 != NULL);
+
 	int i, z;
 	uint32_t IV32;
 	uint16_t IV16;
 	uint16_t PPK[6];
-
-	if (caplen)
-	{
-	}
 
 	z = ((h80211[1] & 3) != 3) ? 24 : 30;
 	if (GET_SUBTYPE(h80211[0]) == IEEE80211_FC0_SUBTYPE_QOS)
@@ -1191,14 +1127,16 @@ int calc_tkip_ppk(unsigned char * h80211,
 		key[5 + (2 * i)] = (uint8_t) HI8(PPK[i]);
 	}
 
-	return 0;
+	return (0);
 }
 
-int calc_tkip_mic_skip_eiv(unsigned char * packet,
-						   int length,
-						   unsigned char ptk[80],
-						   unsigned char value[8])
+static int calc_tkip_mic_skip_eiv(unsigned char * packet,
+								  int length,
+								  unsigned char ptk[80],
+								  unsigned char value[8])
 {
+	REQUIRE(packet != NULL);
+
 	int z, koffset = 0, is_qos = 0;
 	unsigned char smac[6], dmac[6], bssid[6];
 	unsigned char prio[4] = {0};
@@ -1206,7 +1144,7 @@ int calc_tkip_mic_skip_eiv(unsigned char * packet,
 
 	z = ((packet[1] & 3) != 3) ? 24 : 30;
 
-	if (length < z) return 0;
+	if (length < z) return (0);
 
 	/* Check if 802.11e (QoS) */
 	if ((packet[0] & 0x80) == 0x80)
@@ -1241,7 +1179,7 @@ int calc_tkip_mic_skip_eiv(unsigned char * packet,
 			break;
 	}
 
-	if (koffset != 48 && koffset != 48 + 8) return 1;
+	if (koffset != 48 && koffset != 48 + 8) return (1);
 
 	init_michael(&mic, ptk + koffset);
 
@@ -1261,11 +1199,13 @@ int calc_tkip_mic_skip_eiv(unsigned char * packet,
 
 	memcpy(value, mic.mic, 8);
 
-	return 0;
+	return (0);
 }
 
 void encrypt_tkip(unsigned char * h80211, int caplen, unsigned char ptk[80])
 {
+	REQUIRE(h80211 != NULL);
+
 	unsigned char * TK1 = ptk + 32;
 	unsigned char K[16];
 	int z;
@@ -1279,11 +1219,8 @@ void encrypt_tkip(unsigned char * h80211, int caplen, unsigned char ptk[80])
 	// Had to mod calc_tkip_mic to skip extended IV to avoid memmoves
 	unsigned char micval[8] = {0};
 	calc_tkip_mic_skip_eiv(h80211, caplen - 12, ptk, micval);
-	// hexDump("MICVALafter", micval, 8);
 	unsigned char * mic_in_packet = h80211 + caplen - 12;
-	// hexDump("MIC in packet", mic_in_packet, 8);
 	memcpy(mic_in_packet, micval, 8);
-	// hexDump("MIC in packet(updated)", mic_in_packet, 8);
 
 	// Update the CRC in the frame before encrypting
 	uint32_t crc = (uint32_t) calc_crc(h80211 + z + 8, caplen - z - 8 - 4);
@@ -1302,6 +1239,8 @@ void encrypt_tkip(unsigned char * h80211, int caplen, unsigned char ptk[80])
 
 int decrypt_tkip(unsigned char * h80211, int caplen, unsigned char TK1[16])
 {
+	REQUIRE(h80211 != NULL);
+
 	unsigned char K[16];
 	int z;
 
@@ -1320,8 +1259,10 @@ int decrypt_tkip(unsigned char * h80211, int caplen, unsigned char TK1[16])
 
 static inline void XOR(unsigned char * dst, unsigned char * src, int len)
 {
-	int i;
-	for (i = 0; i < len; i++) dst[i] ^= src[i];
+	REQUIRE(dst != NULL);
+	REQUIRE(src != NULL);
+
+	for (int i = 0; i < len; i++) dst[i] ^= src[i];
 }
 
 // Important documents for the implementation of encrypt_ccmp() and
@@ -1347,6 +1288,8 @@ int encrypt_ccmp(unsigned char * h80211,
 				 unsigned char TK1[16],
 				 unsigned char PN[6])
 {
+	REQUIRE(h80211 != NULL);
+
 	int is_a4, i, z, blocks, is_qos;
 	int data_len, last, offset;
 	unsigned char B0[16], B[16], MIC[16];
@@ -1438,7 +1381,7 @@ int encrypt_ccmp(unsigned char * h80211,
 	B0[0] &= 0x07;
 	B0[14] = B0[15] = 0;
 	AES_encrypt(B0, B, &aes_ctx); // S_0 := E( K, A_i )
-	memcpy(h80211 + z + 8 + data_len, B, 8);
+	memcpy(h80211 + z + 8 + data_len, B, 8); //-V512
 	//      ^^^^^^^^^^^^^^^^^^^  ^
 	//      S_0[0..7]/future U   S_0
 
@@ -1473,11 +1416,14 @@ int encrypt_ccmp(unsigned char * h80211,
 	// T :=     X_i+3[ 0.. 7]
 	// U := T XOR S_0[ 0.. 7]
 	XOR(h80211 + offset, MIC, 8);
-	return z + 8 + data_len + 8;
+
+	return (z + 8 + data_len + 8);
 }
 
 int decrypt_ccmp(unsigned char * h80211, int caplen, unsigned char TK1[16])
 {
+	REQUIRE(h80211 != NULL);
+
 	int is_a4, i, z, blocks, is_qos;
 	int data_len, last, offset;
 	unsigned char B0[16], B[16], MIC[16];
@@ -1600,109 +1546,5 @@ int decrypt_ccmp(unsigned char * h80211, int caplen, unsigned char TK1[16])
 	// T := X_n[ 0.. 7]
 	// Note: Decryption is successful if calculated T is the same as the one
 	//       that was sent with the message.
-	return (memcmp(h80211 + offset, MIC, 8) == 0);
+	return (memcmp(h80211 + offset, MIC, 8) == 0); //-V512
 }
-
-/*
-**********************************************************************
-* Routine: Phase 1 -- generate P1K, given TA, TK, IV32
-*
-* Inputs:
-*        TK[]             = Temporal Key                   [128 bits]
-*        TA[]             = transmitter's MAC address      [ 48 bits]
-*        IV32             = upper 32 bits of IV            [ 32 bits]
-* Output:
-*        P1K[]            = Phase 1 key                    [ 80 bits]
-*
-* Note:
-*        This function only needs to be called every 2**16 frames,
-*        although in theory it could be called every frame.
-*
-**********************************************************************
-*/
-// void Phase1(u16b *P1K,const byte *TK,const byte *TA,u32b IV32)
-//         {
-//         int  i;
-//         /* Initialize the 80 bits of P1K[] from IV32 and TA[0..5] */
-//         P1K[0]      = Lo16(IV32);
-//         P1K[1]      = Hi16(IV32);
-//         P1K[2]      = Mk16(TA[1],TA[0]); /* use TA[] as little-endian */
-//         P1K[3]      = Mk16(TA[3],TA[2]);
-//         P1K[4]      = Mk16(TA[5],TA[4]);
-//         /* Now compute an unbalanced Feistel cipher with 80-bit block */
-//         /* size on the 80-bit block P1K[], using the 128-bit key TK[] */
-//         for (i=0; i < PHASE1_LOOP_CNT ;i++)
-//             {                 /* Each add operation here is mod 2**16 */
-//             P1K[0] += _S_(P1K[4] ^ TK16((i&1)+0));
-//             P1K[1] += _S_(P1K[0] ^ TK16((i&1)+2));
-//             P1K[2] += _S_(P1K[1] ^ TK16((i&1)+4));
-//             P1K[3] += _S_(P1K[2] ^ TK16((i&1)+6));
-//             P1K[4] += _S_(P1K[3] ^ TK16((i&1)+0));
-//             P1K[4] += i;                     /* avoid "slide attacks" */
-//             }
-//         }
-/*
-	**********************************************************************
-	* Routine: Phase 2 -- generate RC4KEY, given TK, P1K, IV16
-	*
-	* Inputs:
-	*       TK[]      = Temporal Key                              [128 bits]
-	*       P1K[]     = Phase 1 output key                        [ 80 bits]
-	*       IV16      = low 16 bits of IV counter                 [ 16 bits]
-	* Output:
-	*       RC4KEY[] = the key used to encrypt the frame          [128 bits]
-	*
-	* Note:
-	*       The value {TA,IV32,IV16} for Phase1/Phase2 must be unique
-	*       across all frames using the same key TK value. Then, for a
-	*       given value of TK[], this TKIP48 construction guarantees that
-	*       the final RC4KEY value is unique across all frames.
-	*
-	* Suggested implementation optimization: if PPK[] is "overlaid"
-	*       appropriately on RC4KEY[], there is no need for the final
-	*       for loop below that copies the PPK[] result into RC4KEY[].
-	*
-	**********************************************************************
-	*/
-//     void Phase2(byte *RC4KEY,const byte *TK,const u16b *P1K,u16b IV16)
-//         {
-//         int i;
-//         u16b PPK[6];                        /* temporary key for mixing */
-//         /* all adds in the PPK[] equations below are mod 2**16 */
-//         for (i=0;i<5;i++) PPK[i]=P1K[i];    /* first, copy P1K to PPK */
-//         PPK[5] = P1K[4] + IV16;             /* next, add in IV16 */
-//         /* Bijective non-linear mixing of the 96 bits of PPK[0..5] */
-//         PPK[0] +=    _S_(PPK[5] ^ TK16(0)); /* Mix key in each "round" */
-//         PPK[1] +=    _S_(PPK[0] ^ TK16(1));
-//         PPK[2] +=    _S_(PPK[1] ^ TK16(2));
-//         PPK[3] +=            _S_(PPK[2] ^ TK16(3));
-//         PPK[4] +=            _S_(PPK[3] ^ TK16(4));
-//         PPK[5] +=            _S_(PPK[4] ^ TK16(5)); /* Total # S-box lookups
-//         == 6        */
-//         /* Final sweep: bijective, linear. Rotates kill LSB correlations */
-//         PPK[0] += RotR1(PPK[5] ^ TK16(6));
-//         PPK[1] += RotR1(PPK[0] ^ TK16(7)); /* Use all of TK[] in Phase2 */
-//         PPK[2] += RotR1(PPK[1]);
-//         PPK[3] += RotR1(PPK[2]);
-//         PPK[4] += RotR1(PPK[3]);
-//         PPK[5] += RotR1(PPK[4]);
-//         /* At this point, for a given key TK[0..15], the 96-bit output */
-//         /*        value PPK[0..5] is guaranteed to be unique, as a function
-//         */
-//         /*        of the 96-bit "input" value         {TA,IV32,IV16}. That
-//         is, P1K       */
-//         /*        is now a keyed permutation of {TA,IV32,IV16}. */
-//         /* Set RC4KEY[0..3], which includes cleartext portion of RC4 key */
-//         RC4KEY[0] = Hi8(IV16);                      /* RC4KEY[0..2] is the
-//         WEP IV        */
-//         RC4KEY[1] =(Hi8(IV16) | 0x20) & 0x7F; /* Help avoid FMS weak keys */
-//         RC4KEY[2] = Lo8(IV16);
-//         RC4KEY[3] = Lo8((PPK[5] ^ TK16(0)) >> 1);
-//         /* Copy 96 bits of PPK[0..5] to RC4KEY[4..15]
-//         (little-endian)            */
-//         for (i=0;i<6;i++)
-//             {
-//             RC4KEY[4+2*i] = Lo8(PPK[i]);
-//             RC4KEY[5+2*i] = Hi8(PPK[i]);
-//             }
-//         }

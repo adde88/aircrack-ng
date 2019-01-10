@@ -1,5 +1,4 @@
 /*
- * (c) 2010-2018 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -30,17 +29,17 @@
  * files in the program, then also delete it here.
  */
 
-#define _MAJ 1
-#define _MIN 5
-#define _SUB_MIN 2
-#define _BETA 0
-#define _RC 0
-#define WEBSITE "https://aircrack-ng.org"
+#ifndef _AIRODUMP_NG_DUMP_WRITE_H_
+#define _AIRODUMP_NG_DUMP_WRITE_H_
 
-extern char * getVersion(const char * progname,
-						 const unsigned int maj,
-						 const unsigned int min,
-						 const unsigned int submin,
-						 const char * rev,
-						 const unsigned int beta,
-						 const unsigned int rc);
+int dump_write_csv(void);
+int dump_write_airodump_ng_logcsv_add_ap(const struct AP_info * ap_cur,
+										 const int32_t ri_power);
+int dump_write_airodump_ng_logcsv_add_client(const struct AP_info * ap_cur,
+											 const struct ST_info * st_cur,
+											 const int32_t ri_power);
+char * get_manufacturer_from_string(char * buffer);
+int dump_write_kismet_netxml(void);
+int dump_write_kismet_csv(void);
+
+#endif /* _AIRODUMP_NG_DUMP_WRITE_H_ */
